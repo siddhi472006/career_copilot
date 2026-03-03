@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "career-copilot": {
+      "command": "/Users/siddhisuryavanshi/Desktop/career-copilot/venv/bin/python3",
+      "args": ["/Users/siddhisuryavanshi/Desktop/career-copilot/mcp_server.py"]
+    }
+  }
+}
