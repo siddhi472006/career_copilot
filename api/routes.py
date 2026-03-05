@@ -1,3 +1,4 @@
+from agents.skill_gap_bridge import generate_skill_gap_bridge
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Header, Request
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -73,7 +74,7 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
     token = create_token(user.id, user.email)
     return {"token": token, "user": {"id": user.id, "email": user.email, "name": user.full_name}}
 
-# ── Compatibility aliases (app.py calls /login and /signup without /auth/) ───
+# ── Compatibility aliases ─────────────────────────────────────────────────────
 @router.post("/signup")
 def signup_alias(req: SignupRequest, db: Session = Depends(get_db)):
     return signup(req, db)
@@ -100,15 +101,15 @@ def get_history(user: User = Depends(require_user), db: Session = Depends(get_db
         .all()
     )
     return {"history": [{
-        "id":               a.id,
-        "company":          a.company_name,
-        "job_description":  (a.job_description or "")[:100] + "...",
-        "match_score":      a.match_percentage,
-        "matched_skills":   a.matched_skills or [],
-        "missing_skills":   a.missing_skills or [],
-        "resume_filename":  a.resume_filename,
-        "analysis_type":    "resume_jd",
-        "created_at":       a.created_at.isoformat(),
+        "id":              a.id,
+        "company":         a.company_name,
+        "job_description": (a.job_description or "")[:100] + "...",
+        "match_score":     a.match_percentage,
+        "matched_skills":  a.matched_skills or [],
+        "missing_skills":  a.missing_skills or [],
+        "resume_filename": a.resume_filename,
+        "analysis_type":   "resume_jd",
+        "created_at":      a.created_at.isoformat(),
     } for a in analyses]}
 
 @router.get("/history/{analysis_id}")
@@ -140,7 +141,6 @@ def delete_analysis(analysis_id: str, user: User = Depends(require_user), db: Se
 
 @router.post("/history/save")
 async def save_history(request: Request, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Save analysis to history — called from Streamlit after job recommendation analysis."""
     body = await request.json()
     a = Analysis(
         user_id          = user.id if user else None,
@@ -157,7 +157,7 @@ async def save_history(request: Request, user: User = Depends(get_current_user),
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ANALYZE (saves to DB if logged in)
+# ANALYZE
 # ══════════════════════════════════════════════════════════════════════════════
 @router.post("/analyze")
 async def analyze(
@@ -174,6 +174,12 @@ async def analyze(
         tmp_path = tmp.name
     try:
         result = run_full_analysis(tmp_path, job_description, company_name, location)
+
+        # Add skill gap bridge
+        missing   = result.get("match", {}).get("missing_skills", [])
+        match_pct = result.get("match", {}).get("match_percentage", 0)
+        result["skill_bridge"] = generate_skill_gap_bridge(missing, match_pct, company_name)
+
         if user:
             match = result.get("match", {})
             a = Analysis(
@@ -196,6 +202,7 @@ async def analyze(
             db.add(a)
             db.commit()
             result["analysis_id"] = a.id
+
         return JSONResponse(content=result)
     finally:
         os.unlink(tmp_path)
@@ -203,8 +210,8 @@ async def analyze(
 
 @router.post("/evaluate-answer")
 async def evaluate(
-    question: str = Form(...),
-    answer: str = Form(...),
+    question:        str = Form(...),
+    answer:          str = Form(...),
     job_description: str = Form(...),
 ):
     return JSONResponse(content=evaluate_answer(question, answer, job_description))
@@ -252,6 +259,7 @@ async def analyze_job(req: JobAnalysisRequest):
 
     match_data = calculate_match(resume_data, jd)
     missing    = match_data.get("missing_skills", [])
+    match_pct  = match_data.get("match_percentage", 0)
 
     def run_ats():
         r = optimize_for_ats(resume_data, jd, missing)
@@ -279,4 +287,5 @@ async def analyze_job(req: JobAnalysisRequest):
         "interview":    results.get("interview",    {}),
         "cover_letter": results.get("cover_letter", {}),
         "salary":       results.get("salary",       {}),
+        "skill_bridge": generate_skill_gap_bridge(missing, match_pct, req.job_title),
     })

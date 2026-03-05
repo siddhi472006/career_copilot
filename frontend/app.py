@@ -91,7 +91,7 @@ def auth_headers():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# AUTH GATE — show login/signup if not logged in
+# AUTH GATE
 # ══════════════════════════════════════════════════════════════════════════════
 if not st.session_state.token:
     st.markdown("""
@@ -101,7 +101,6 @@ if not st.session_state.token:
     </div>
     """, unsafe_allow_html=True)
 
-    # Center the tabs using columns
     _, center, _ = st.columns([1, 2, 1])
     with center:
         tab_login, tab_signup = st.tabs(["🔑 Login", "✨ Sign Up"])
@@ -128,7 +127,7 @@ if not st.session_state.token:
                             st.success(f"Welcome back, {data['user']['name']}! 🎉")
                             st.rerun()
                         else:
-                            st.error(res.json().get("detail", "Login failed. Check your credentials."))
+                            st.error(res.json().get("detail", "Login failed."))
                     except Exception as e:
                         st.error(f"Could not connect to server: {e}")
 
@@ -157,15 +156,15 @@ if not st.session_state.token:
                             st.success(f"Account created! Welcome, {data['user']['name']}! 🎉")
                             st.rerun()
                         else:
-                            st.error(res.json().get("detail", "Signup failed. Try a different email."))
+                            st.error(res.json().get("detail", "Signup failed."))
                     except Exception as e:
                         st.error(f"Could not connect to server: {e}")
 
-    st.stop()  # Don't render the rest of the app until logged in
+    st.stop()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# LOGGED IN — rest of app
+# LOGGED IN
 # ══════════════════════════════════════════════════════════════════════════════
 user = st.session_state.user
 
@@ -185,17 +184,16 @@ def render_salary(sal: dict, key_suffix: str = ""):
     if not sal:
         st.info("Salary data unavailable.")
         return
-
-    period    = sal.get("salary_period", "annual")
-    is_ann    = period == "annual"
-    p_label   = "per year (Annual CTC)" if is_ann else "per month"
-    p_emoji   = "📅" if is_ann else "🗓️"
-    display   = sal.get("salary_display", "")
-    bd        = sal.get("salary_breakdown", {})
-    monthly   = bd.get("monthly_in_hand", 0)
-    web_used  = sal.get("_web_data_used", False)
-    sources   = sal.get("data_sources", [])
-    insight   = sal.get("company_specific_insight", "")
+    period   = sal.get("salary_period", "annual")
+    is_ann   = period == "annual"
+    p_label  = "per year (Annual CTC)" if is_ann else "per month"
+    p_emoji  = "📅" if is_ann else "🗓️"
+    display  = sal.get("salary_display", "")
+    bd       = sal.get("salary_breakdown", {})
+    monthly  = bd.get("monthly_in_hand", 0)
+    web_used = sal.get("_web_data_used", False)
+    sources  = sal.get("data_sources", [])
+    insight  = sal.get("company_specific_insight", "")
 
     web_badge_html = '<span class="web-badge">🌐 Web-researched</span>' if web_used else ""
     st.markdown(
@@ -203,7 +201,6 @@ def render_salary(sal: dict, key_suffix: str = ""):
         f'{web_badge_html}',
         unsafe_allow_html=True,
     )
-
     c1, c2, c3 = st.columns(3)
     if is_ann:
         c1.metric("Min CTC",    f"₹{sal.get('min_salary',    0):,} / yr")
@@ -213,26 +210,21 @@ def render_salary(sal: dict, key_suffix: str = ""):
         c1.metric("Min Stipend",    f"₹{sal.get('min_salary',    0):,} / mo")
         c2.metric("Median Stipend", f"₹{sal.get('median_salary', 0):,} / mo")
         c3.metric("Max Stipend",    f"₹{sal.get('max_salary',    0):,} / mo")
-
     if display:
         st.markdown(f"**Range:** {display}")
-
     if is_ann and monthly:
         st.markdown(
             f'<div class="monthly-inhand">💵 Estimated monthly in-hand after tax: '
             f'<b>₹{monthly:,} / month</b></div>',
             unsafe_allow_html=True,
         )
-
     if insight and insight.strip().lower() not in ("n/a", "n/a — could not retrieve company data", ""):
         st.markdown(
             f'<div class="company-insight">🏢 <b>Company insight:</b> {insight}</div>',
             unsafe_allow_html=True,
         )
-
     if sources:
         st.caption("📚 Sources used: " + " · ".join(sources))
-
     if bd:
         with st.expander("📊 Full Salary Breakdown"):
             b1, b2, b3 = st.columns(3)
@@ -241,9 +233,7 @@ def render_salary(sal: dict, key_suffix: str = ""):
             b3.metric("Total CTC",    f"₹{bd.get('total_ctc_annual', 0):,}")
             if monthly:
                 st.caption(f"Monthly in-hand ≈ ₹{monthly:,} (estimated after ~25% tax)")
-
     st.write("**Experience Level:**", sal.get("experience_level", ""))
-
     comparables = sal.get("comparable_roles", [])
     if comparables:
         st.subheader("📊 Comparable Roles")
@@ -251,13 +241,11 @@ def render_salary(sal: dict, key_suffix: str = ""):
             rp = r.get("period", period)
             rl = "/yr" if rp == "annual" else "/mo"
             st.write(f"• **{r.get('role','')}** — ₹{r.get('avg_salary', 0):,} {rl}")
-
     insights_list = sal.get("market_insights", [])
     if insights_list:
         st.subheader("💡 Market Insights")
         for i in insights_list:
             st.write(f"• {i}")
-
     tips = sal.get("negotiation_tips", [])
     if tips:
         st.subheader("🤝 Negotiation Tips")
@@ -265,8 +253,90 @@ def render_salary(sal: dict, key_suffix: str = ""):
             st.write(f"• {t}")
 
 
+def render_skill_bridge(bridge_data: dict, current_score: float):
+    """Render Skill-Gap Bridge inside Match & Gaps tab."""
+    if not bridge_data:
+        return
+    bridges    = bridge_data.get("bridges", [])
+    potential  = bridge_data.get("potential_score", current_score)
+    quick_wins = bridge_data.get("quick_wins", [])
+    if not bridges:
+        st.success("🎉 No skill gaps! You're a strong match.")
+        return
+
+    st.markdown("---")
+    st.markdown("## 🌉 Skill-Gap Bridge")
+    st.caption("Free resources to close your skill gaps and boost your match score")
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Current Score",   f"{current_score}%")
+    c2.metric("Potential Score", f"{potential}%", delta=f"+{round(potential - current_score)}%")
+    c3.metric("Skills to Learn", len(bridges))
+
+    if quick_wins:
+        qw = ", ".join(f"**{q['skill']}**" for q in quick_wins[:3])
+        st.info(f"⚡ **Quick Wins (under 2 hrs):** {qw} — learn these first for fastest score boost!")
+
+    st.markdown("### 📚 Your Learning Roadmap")
+
+    for b in bridges:
+        skill       = b.get("skill", "")
+        resource    = b.get("resource", "")
+        url         = b.get("url", "#")
+        platform    = b.get("platform", "YouTube")
+        difficulty  = b.get("difficulty", "📚 Medium")
+        boost       = b.get("score_boost", 8)
+        new_score   = b.get("new_score", current_score + boost)
+        boost_color = "#16a34a" if boost >= 14 else "#d97706" if boost >= 10 else "#6b7280"
+
+        st.markdown(f"""
+<div style="background:#f8f9fa; border:1px solid #e5e7eb;
+     border-left:4px solid {boost_color}; border-radius:10px;
+     padding:14px 18px; margin-bottom:10px;">
+  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:8px;">
+    <div style="flex:1; min-width:200px;">
+      <div style="font-size:16px; font-weight:700; color:#1a1a2e; margin-bottom:4px;">
+        ❌ Missing: <span style="color:#dc2626;">{skill}</span>
+      </div>
+      <div style="font-size:14px; color:#374151; margin-bottom:6px;">
+        📖 <b>{resource}</b>
+        <span style="background:#e0f2fe; color:#0369a1; border-radius:6px;
+              padding:2px 8px; font-size:11px; margin-left:6px;">{platform}</span>
+        <span style="background:#dcfce7; color:#15803d; border-radius:6px;
+              padding:2px 8px; font-size:11px; margin-left:4px;">🆓 Free</span>
+      </div>
+      <div style="font-size:13px; color:#6b7280;">
+        ⏱ {difficulty} &nbsp;·&nbsp;
+        📈 Score after learning: <b style="color:{boost_color};">{new_score}%</b> (+{boost}%)
+      </div>
+    </div>
+    <div style="text-align:center; min-width:80px;">
+      <div style="font-size:22px; font-weight:800; color:{boost_color};">+{boost}%</div>
+      <div style="font-size:11px; color:#9ca3af;">score boost</div>
+    </div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+        st.link_button(f"▶ Start Learning: {skill}", url)
+        st.markdown("")
+
+    total_hours = sum(b.get("hours", 3) for b in bridges)
+    st.markdown(f"""
+<div style="background:linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+     border-radius:12px; padding:16px 20px; margin-top:16px; color:white;">
+  <div style="font-size:18px; font-weight:700; margin-bottom:4px;">
+    🎯 Complete all {len(bridges)} resources
+  </div>
+  <div style="font-size:14px; opacity:0.9;">
+    ⏱ Total time: ~{total_hours} hours &nbsp;·&nbsp;
+    📈 Potential score: <b>{potential}%</b> &nbsp;·&nbsp;
+    💰 All completely free
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+
 def save_analysis_to_history(company_name, job_description, match_score, result_data, analysis_type="resume_jd"):
-    """Save analysis result to database for logged-in user."""
     try:
         http_requests.post(
             f"{API_URL}/history/save",
@@ -281,7 +351,7 @@ def save_analysis_to_history(company_name, job_description, match_score, result_
             timeout=10,
         )
     except Exception:
-        pass  # Silently fail — don't break the main flow
+        pass
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -289,15 +359,10 @@ def save_analysis_to_history(company_name, job_description, match_score, result_
 # ══════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
     st.markdown("## 🤖 AI Career Copilot")
-
-    # ── User info + logout ────────────────────────────────────────────────
     st.markdown(f"👋 **{user['name']}**  \n📧 {user['email']}")
     if st.button("Logout", use_container_width=True):
-        st.session_state.token           = None
-        st.session_state.user            = None
-        st.session_state.analysis_data   = None
-        st.session_state.resume_data     = None
-        st.session_state.recommended_jobs = None
+        for k in ["token", "user", "analysis_data", "resume_data", "recommended_jobs"]:
+            st.session_state[k] = None
         st.session_state.selected_job_analysis = {}
         st.rerun()
 
@@ -314,8 +379,7 @@ with st.sidebar:
 
     if mode == "📄 Resume + Job Description":
         st.subheader("📝 Job Description")
-        job_description = st.text_area("Paste JD", height=180,
-                                        placeholder="Paste the full job description here…")
+        job_description = st.text_area("Paste JD", height=180, placeholder="Paste the full job description here…")
         company_name  = st.text_input("Company Name", placeholder="e.g. Google")
         location      = st.text_input("Location", value="India")
         analyze_btn   = st.button("🚀 Analyze Resume", use_container_width=True, type="primary")
@@ -358,7 +422,6 @@ if mode == "📄 Resume + Job Description":
             if resp.status_code == 200:
                 st.session_state.analysis_data = resp.json()
                 st.success("✅ Analysis complete!")
-                # Auto-save to history
                 d = st.session_state.analysis_data
                 save_analysis_to_history(
                     company_name=company_name or "Unknown",
@@ -372,7 +435,7 @@ if mode == "📄 Resume + Job Description":
 
     data = st.session_state.analysis_data
     if data:
-        tabs = st.tabs(["👤 Resume", "🎯 Match", "📝 ATS", "🗺️ Roadmap",
+        tabs = st.tabs(["👤 Resume", "🎯 Match & 🌉 Bridge", "📝 ATS", "🗺️ Roadmap",
                          "🎤 Interview", "✉️ Cover Letter", "💰 Salary"])
 
         with tabs[0]:
@@ -404,6 +467,8 @@ if mode == "📄 Resume + Job Description":
             with cb:
                 st.error("❌ Missing Skills")
                 for s in m.get("missing_skills", []): st.write(f"• {s}")
+            # ── Skill-Gap Bridge ──────────────────────────────────────────
+            render_skill_bridge(data.get("skill_bridge", {}), m["match_percentage"])
 
         with tabs[2]:
             a = data["ats"]
@@ -560,7 +625,6 @@ elif mode == "🔍 Job Recommendations":
                         )
                         result = r.json() if r.status_code == 200 else {"error": r.text}
                         st.session_state.selected_job_analysis[job_key] = result
-                        # Save to history
                         if r.status_code == 200:
                             save_analysis_to_history(
                                 company_name=job["company"],
@@ -578,7 +642,7 @@ elif mode == "🔍 Job Recommendations":
                     if "error" in analysis:
                         st.error(analysis["error"])
                     else:
-                        atabs = st.tabs(["🎯 Match & Gaps", "📝 ATS Tips", "🗺️ Roadmap",
+                        atabs = st.tabs(["🎯 Match & 🌉 Bridge", "📝 ATS Tips", "🗺️ Roadmap",
                                           "🎤 Interview", "✉️ Cover Letter", "💰 Salary"])
 
                         with atabs[0]:
@@ -588,23 +652,23 @@ elif mode == "🔍 Job Recommendations":
                             c2.metric("Skill Score",   f"{m.get('skill_score', 0)}%")
                             c3.metric("Semantic",      f"{m.get('semantic_score', 0)}%")
                             st.progress(m.get("match_percentage", score) / 100)
-                            cg1, cg2, cg3 = st.columns(3)
+                            cg1, cg2 = st.columns(2)
                             with cg1:
                                 st.markdown("**✅ Matched Skills**")
                                 st.markdown(" ".join(f'<span class="chip-matched">{s}</span>'
                                             for s in m.get("matched_skills", [])) or "_None_",
                                             unsafe_allow_html=True)
                             with cg2:
-                                st.markdown("**❌ Skill Gaps**")
-                                st.markdown(" ".join(f'<span class="chip-missing">{s}</span>'
-                                            for s in m.get("missing_skills", [])) or "_None_",
-                                            unsafe_allow_html=True)
-                            with cg3:
                                 st.markdown("**🔑 Keywords to Add**")
                                 kws = analysis.get("ats", {}).get("keywords_to_add", [])
                                 st.markdown(" ".join(f'<span class="chip-keyword">{k}</span>'
                                             for k in kws[:12]) or "_Already optimized_",
                                             unsafe_allow_html=True)
+                            # ── Skill-Gap Bridge ──────────────────────────
+                            render_skill_bridge(
+                                analysis.get("skill_bridge", {}),
+                                m.get("match_percentage", score)
+                            )
 
                         with atabs[1]:
                             a = analysis.get("ats", {})
@@ -651,28 +715,21 @@ elif mode == "🔍 Job Recommendations":
 1. **Upload your resume** in the sidebar
 2. Click **Find Recommended Jobs**
 3. Jobs fetched from **3 live portals**, ranked by AI match score
-4. Click **🔬 Full Analysis** on any job for:
-   - Match % · Skill gaps · Keywords to add
-   - ATS tips · Roadmap · Interview Qs · Cover Letter
-   - 💰 Salary with **web-researched market data** + annual/monthly labels
+4. Click **🔬 Full Analysis** on any job for deep analysis + Skill-Gap Bridge
 
 > 💡 Get free Adzuna keys at [developer.adzuna.com](https://developer.adzuna.com)
         """)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# MODE 3 — Analysis History
+# MODE 3 — History
 # ══════════════════════════════════════════════════════════════════════════════
 elif mode == "📚 My History":
     st.title("📚 My Analysis History")
     st.caption("All your past resume analyses saved automatically")
 
     try:
-        res = http_requests.get(
-            f"{API_URL}/history",
-            headers=auth_headers(),
-            timeout=10,
-        )
+        res = http_requests.get(f"{API_URL}/history", headers=auth_headers(), timeout=10)
         if res.status_code == 200:
             history = res.json().get("history", [])
             if not history:
@@ -687,7 +744,6 @@ elif mode == "📚 My History":
                     created_at = item.get("created_at", "")[:10]
                     type_label = "📄 Resume + JD" if atype == "resume_jd" else "🔍 Job Recommendation"
                     color      = score_color(score)
-
                     st.markdown(f"""
 <div class="history-card">
   <div>
