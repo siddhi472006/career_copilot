@@ -289,3 +289,203 @@ async def analyze_job(req: JobAnalysisRequest):
         "salary":       results.get("salary",       {}),
         "skill_bridge": generate_skill_gap_bridge(missing, match_pct, req.job_title),
     })
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REVERSE PITCH
+# ══════════════════════════════════════════════════════════════════════════════
+from agents.reverse_pitch_agent import analyze_project
+from utils.email_service        import send_interest_notification, send_interest_confirmation
+from database.models            import Project, ProjectInterest, Notification
+
+class ProjectSubmitRequest(BaseModel):
+    submitter_name:  str
+    submitter_email: str
+    title:           str
+    description:     str
+    github_url:      str = ""
+    demo_url:        str = ""
+    tech_stack:      list = []
+
+@router.post("/projects/submit")
+async def submit_project(
+    req: ProjectSubmitRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Submit a project to the Reverse Pitch feed. Anyone can submit."""
+    # AI analysis
+    ai_result = analyze_project(
+        title=req.title,
+        description=req.description,
+        tech_stack=req.tech_stack,
+        github_url=req.github_url,
+        demo_url=req.demo_url,
+    )
+
+    project = Project(
+        user_id         = user.id if user else None,
+        submitter_name  = req.submitter_name,
+        submitter_email = req.submitter_email,
+        title           = req.title,
+        description     = req.description,
+        github_url      = req.github_url or None,
+        demo_url        = req.demo_url or None,
+        tech_stack      = req.tech_stack,
+        ai_tags         = ai_result.get("ai_tags", []),
+        ai_summary      = ai_result.get("ai_summary", ""),
+    )
+    db.add(project)
+    db.commit()
+    db.refresh(project)
+
+    return JSONResponse(content={
+        "status":     "submitted",
+        "project_id": project.id,
+        "ai_summary": project.ai_summary,
+        "ai_tags":    project.ai_tags,
+        "message":    "Your project is now live in the discovery feed!",
+        **ai_result,
+    })
+
+
+@router.get("/projects")
+def get_projects(
+    domain:   str = "",
+    tag:      str = "",
+    limit:    int = 20,
+    offset:   int = 0,
+    db: Session = Depends(get_db),
+):
+    """Get all projects for the discovery feed. Public — no auth needed."""
+    query = db.query(Project).filter(Project.is_active == True)
+    projects = query.order_by(Project.created_at.desc()).offset(offset).limit(limit).all()
+
+    # Increment views
+    for p in projects:
+        p.views = (p.views or 0) + 1
+    db.commit()
+
+    return JSONResponse(content={"projects": [
+        {
+            "id":             p.id,
+            "title":          p.title,
+            "description":    p.description[:300] + "..." if len(p.description) > 300 else p.description,
+            "submitter_name": p.submitter_name,
+            "github_url":     p.github_url,
+            "demo_url":       p.demo_url,
+            "tech_stack":     p.tech_stack or [],
+            "ai_tags":        p.ai_tags or [],
+            "ai_summary":     p.ai_summary or "",
+            "views":          p.views or 0,
+            "interest_count": p.interest_count or 0,
+            "created_at":     p.created_at.isoformat(),
+        }
+        for p in projects
+    ]})
+
+
+class InterestRequest(BaseModel):
+    recruiter_name:  str
+    recruiter_email: str
+    company_name:    str
+    message:         str = ""
+
+@router.post("/projects/{project_id}/interest")
+def express_interest(
+    project_id: str,
+    req: InterestRequest,
+    db: Session = Depends(get_db),
+):
+    """Recruiter expresses interest in a project. Sends email to candidate."""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Save interest to DB
+    interest = ProjectInterest(
+        project_id      = project_id,
+        recruiter_name  = req.recruiter_name,
+        recruiter_email = req.recruiter_email,
+        company_name    = req.company_name,
+        message         = req.message,
+    )
+    db.add(interest)
+
+    # Update interest count
+    project.interest_count = (project.interest_count or 0) + 1
+
+    # Save in-app notification
+    notif = Notification(
+        user_id  = project.user_id,
+        email    = project.submitter_email,
+        type     = "interest_received",
+        title    = f"🎉 {req.recruiter_name} from {req.company_name} is interested!",
+        message  = f"They're interested in your project: {project.title}",
+        is_read  = False,
+        data     = {
+            "project_id":      project_id,
+            "project_title":   project.title,
+            "recruiter_name":  req.recruiter_name,
+            "recruiter_email": req.recruiter_email,
+            "company_name":    req.company_name,
+            "message":         req.message,
+        },
+    )
+    db.add(notif)
+    db.commit()
+
+    # Send emails
+    send_interest_notification(
+        candidate_name  = project.submitter_name,
+        candidate_email = project.submitter_email,
+        project_title   = project.title,
+        recruiter_name  = req.recruiter_name,
+        recruiter_email = req.recruiter_email,
+        company_name    = req.company_name,
+        message         = req.message,
+    )
+    send_interest_confirmation(
+        recruiter_name  = req.recruiter_name,
+        recruiter_email = req.recruiter_email,
+        project_title   = project.title,
+        candidate_name  = project.submitter_name,
+        candidate_email = project.submitter_email,
+    )
+
+    return JSONResponse(content={
+        "status":  "sent",
+        "message": f"Your interest has been sent to {project.submitter_name}!",
+    })
+
+
+@router.get("/notifications")
+def get_notifications(
+    user: User = Depends(require_user),
+    db:   Session = Depends(get_db),
+):
+    """Get in-app notifications for logged-in user."""
+    notifs = (
+        db.query(Notification)
+        .filter(Notification.user_id == user.id)
+        .order_by(Notification.created_at.desc())
+        .limit(20)
+        .all()
+    )
+    # Mark all as read
+    for n in notifs:
+        n.is_read = True
+    db.commit()
+
+    return {"notifications": [
+        {
+            "id":         n.id,
+            "type":       n.type,
+            "title":      n.title,
+            "message":    n.message,
+            "is_read":    n.is_read,
+            "data":       n.data,
+            "created_at": n.created_at.isoformat(),
+        }
+        for n in notifs
+    ]}

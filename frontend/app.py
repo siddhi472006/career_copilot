@@ -367,11 +367,11 @@ with st.sidebar:
         st.rerun()
 
     st.markdown("---")
-    mode = st.radio("Mode", ["📄 Resume + Job Description", "🔍 Job Recommendations", "📚 My History"],
+    mode = st.radio("Mode", ["📄 Resume + Job Description", "🔍 Job Recommendations", "🚀 Reverse Pitch", "📚 My History"],
                     label_visibility="collapsed")
     st.markdown("---")
 
-    if mode != "📚 My History":
+    if mode not in ("📚 My History", "🚀 Reverse Pitch"):
         st.subheader("📋 Upload Resume")
         resume_file = st.file_uploader("PDF or DOCX", type=["pdf", "docx"])
     else:
@@ -392,6 +392,9 @@ with st.sidebar:
         st.markdown("<small>🌐 Remotive · 🌍 Arbeitnow · 🔍 Adzuna (optional)</small>", unsafe_allow_html=True)
         find_jobs_btn = st.button("🔍 Find Recommended Jobs", use_container_width=True, type="primary")
         analyze_btn   = False
+    elif mode == "🚀 Reverse Pitch":
+        analyze_btn   = False
+        find_jobs_btn = False
     else:
         analyze_btn   = False
         find_jobs_btn = False
@@ -721,8 +724,202 @@ elif mode == "🔍 Job Recommendations":
         """)
 
 
+
+
 # ══════════════════════════════════════════════════════════════════════════════
-# MODE 3 — History
+# MODE 3 — Reverse Pitch
+# ══════════════════════════════════════════════════════════════════════════════
+elif mode == "🚀 Reverse Pitch":
+    st.title("🚀 Reverse Pitch — Let Recruiters Find You")
+    st.caption("Showcase your project · Recruiters browse · Get discovered")
+
+    rp_tab1, rp_tab2 = st.tabs(["🌍 Discovery Feed", "📤 Submit Your Project"])
+
+    # ── TAB 1: Discovery Feed ─────────────────────────────────────────────────
+    with rp_tab1:
+        st.markdown("### 🔍 Browse Candidate Projects")
+        st.caption("Click 'I'm Interested' on any project to connect with the candidate")
+
+        try:
+            feed_res = http_requests.get(f"{API_URL}/projects", timeout=15)
+            if feed_res.status_code == 200:
+                projects = feed_res.json().get("projects", [])
+                if not projects:
+                    st.info("🌱 No projects yet — be the first to submit yours in the **Submit Your Project** tab!")
+                else:
+                    st.markdown(f"**{len(projects)} projects** in the discovery feed")
+                    st.markdown("---")
+                    for proj in projects:
+                        score_col, info_col = st.columns([1, 5])
+                        with score_col:
+                            st.markdown(f"""
+<div style="background:linear-gradient(135deg,#667eea,#764ba2);border-radius:12px;
+     padding:14px 8px;text-align:center;color:white;">
+  <div style="font-size:22px;">👁️</div>
+  <div style="font-size:18px;font-weight:800;">{proj.get('views', 0)}</div>
+  <div style="font-size:10px;opacity:0.8;">views</div>
+  <div style="font-size:18px;font-weight:800;margin-top:8px;">{proj.get('interest_count', 0)}</div>
+  <div style="font-size:10px;opacity:0.8;">interested</div>
+</div>
+""", unsafe_allow_html=True)
+
+                        with info_col:
+                            tags_html = " ".join(
+                                f'<span style="background:#ede9fe;color:#5b21b6;border-radius:6px;padding:2px 8px;font-size:11px;margin:2px;display:inline-block;">{t}</span>'
+                                for t in proj.get("ai_tags", [])
+                            )
+                            stack_html = " ".join(
+                                f'<span style="background:#f3f4f6;color:#374151;border-radius:6px;padding:2px 8px;font-size:11px;margin:2px;display:inline-block;">{s}</span>'
+                                for s in proj.get("tech_stack", [])[:8]
+                            )
+                            github_btn = f'<a href="{proj["github_url"]}" target="_blank" style="background:#1a1a2e;color:white;border-radius:6px;padding:4px 12px;font-size:12px;text-decoration:none;margin-right:6px;">⚡ GitHub</a>' if proj.get("github_url") else ""
+                            demo_btn   = f'<a href="{proj["demo_url"]}" target="_blank" style="background:#0369a1;color:white;border-radius:6px;padding:4px 12px;font-size:12px;text-decoration:none;">🌐 Live Demo</a>' if proj.get("demo_url") else ""
+
+                            st.markdown(f"""
+<div style="background:#f8f9fa;border:1px solid #e5e7eb;border-left:4px solid #667eea;
+     border-radius:10px;padding:16px 18px;margin-bottom:4px;">
+  <div style="font-size:18px;font-weight:800;color:#1a1a2e;margin-bottom:4px;">
+    📂 {proj['title']}
+  </div>
+  <div style="font-size:13px;color:#6b7280;margin-bottom:8px;">
+    👤 <b>{proj['submitter_name']}</b> &nbsp;·&nbsp; 📅 {proj['created_at'][:10]}
+  </div>
+  <div style="font-size:14px;color:#374151;margin-bottom:10px;font-style:italic;">
+    "{proj.get('ai_summary', proj['description'][:100])}"
+  </div>
+  <div style="margin-bottom:8px;">{tags_html}</div>
+  <div style="margin-bottom:10px;">{stack_html}</div>
+  <div>{github_btn}{demo_btn}</div>
+</div>
+""", unsafe_allow_html=True)
+
+                        # Interest form in expander
+                        with st.expander(f"💼 I'm Interested — {proj['title']}", expanded=False):
+                            st.markdown("Fill in your details to connect with this candidate:")
+                            i_name    = st.text_input("Your Name",    key=f"iname_{proj['id']}", placeholder="Jane Smith")
+                            i_email   = st.text_input("Your Email",   key=f"iemail_{proj['id']}", placeholder="jane@company.com")
+                            i_company = st.text_input("Company Name", key=f"icomp_{proj['id']}", placeholder="Google, Startup XYZ...")
+                            i_msg     = st.text_area("Message (optional)", key=f"imsg_{proj['id']}",
+                                                      placeholder="Tell the candidate why you're interested...", height=80)
+                            if st.button("📩 Send Interest", key=f"ibtn_{proj['id']}", type="primary"):
+                                if not i_name or not i_email or not i_company:
+                                    st.error("Please fill in your name, email and company.")
+                                else:
+                                    try:
+                                        ir = http_requests.post(
+                                            f"{API_URL}/projects/{proj['id']}/interest",
+                                            json={
+                                                "recruiter_name":  i_name,
+                                                "recruiter_email": i_email,
+                                                "company_name":    i_company,
+                                                "message":         i_msg,
+                                            },
+                                            timeout=15,
+                                        )
+                                        if ir.status_code == 200:
+                                            st.success(f"✅ Interest sent! {proj['submitter_name']} will be notified by email.")
+                                        else:
+                                            st.error(f"Error: {ir.text}")
+                                    except Exception as e:
+                                        st.error(f"Could not send: {e}")
+                        st.markdown("---")
+            else:
+                st.error("Could not load projects feed.")
+        except Exception as e:
+            st.error(f"Error loading feed: {e}")
+
+    # ── TAB 2: Submit Project ─────────────────────────────────────────────────
+    with rp_tab2:
+        st.markdown("### 📤 Showcase Your Project")
+        st.caption("Submit once — get discovered by recruiters globally. No login required.")
+
+        # Pre-fill if logged in
+        default_name  = user.get("name",  "") if user else ""
+        default_email = user.get("email", "") if user else ""
+
+        with st.form("submit_project_form"):
+            st.markdown("#### 👤 Your Info")
+            fc1, fc2 = st.columns(2)
+            with fc1:
+                sub_name  = st.text_input("Your Name*",  value=default_name,  placeholder="Siddhi Suryavanshi")
+            with fc2:
+                sub_email = st.text_input("Your Email*", value=default_email, placeholder="you@gmail.com")
+
+            st.markdown("#### 📂 Project Details")
+            proj_title = st.text_input("Project Title*", placeholder="e.g. AI Resume Analyzer, E-commerce App...")
+            proj_desc  = st.text_area("Project Description*", height=120,
+                                       placeholder="What does your project do? What problem does it solve? What makes it unique?")
+
+            fp1, fp2 = st.columns(2)
+            with fp1:
+                github_url = st.text_input("GitHub URL", placeholder="https://github.com/you/project")
+            with fp2:
+                demo_url   = st.text_input("Live Demo URL", placeholder="https://yourproject.vercel.app")
+
+            st.markdown("#### 🛠️ Tech Stack")
+            st.caption("Type skills separated by commas")
+            tech_input = st.text_input("Tech Stack*", placeholder="Python, React, FastAPI, PostgreSQL, Docker...")
+
+            st.markdown("")
+            submitted = st.form_submit_button("🚀 Submit to Discovery Feed", type="primary", use_container_width=True)
+
+        if submitted:
+            if not sub_name or not sub_email or not proj_title or not proj_desc or not tech_input:
+                st.error("Please fill in all required fields (marked with *).")
+            else:
+                tech_list = [t.strip() for t in tech_input.split(",") if t.strip()]
+                with st.spinner("🤖 AI is analyzing your project… (10-20 sec)"):
+                    try:
+                        sr = http_requests.post(
+                            f"{API_URL}/projects/submit",
+                            json={
+                                "submitter_name":  sub_name,
+                                "submitter_email": sub_email,
+                                "title":           proj_title,
+                                "description":     proj_desc,
+                                "github_url":      github_url or "",
+                                "demo_url":        demo_url or "",
+                                "tech_stack":      tech_list,
+                            },
+                            headers=auth_headers(),
+                            timeout=60,
+                        )
+                        if sr.status_code == 200:
+                            result = sr.json()
+                            st.success("🎉 Your project is now LIVE in the discovery feed!")
+                            st.markdown(f"""
+<div style="background:linear-gradient(135deg,#667eea,#764ba2);border-radius:12px;
+     padding:20px;color:white;margin-top:12px;">
+  <div style="font-size:20px;font-weight:800;margin-bottom:8px;">✅ {proj_title}</div>
+  <div style="font-size:14px;opacity:0.9;margin-bottom:12px;">"{result.get('ai_summary','')}"</div>
+  <div style="font-size:13px;margin-bottom:4px;">🎯 <b>AI Role Tags:</b> {", ".join(result.get('ai_tags', []))}</div>
+  <div style="font-size:13px;">⚡ <b>Complexity:</b> {result.get('complexity','')} &nbsp;·&nbsp;
+  🌐 <b>Domain:</b> {result.get('domain','')}</div>
+</div>
+""", unsafe_allow_html=True)
+                            st.info("💡 Switch to the **Discovery Feed** tab to see your project live!")
+                        else:
+                            st.error(f"Submission failed: {sr.text}")
+                    except Exception as e:
+                        st.error(f"Could not submit: {e}")
+
+    # ── Notifications for logged-in users ─────────────────────────────────────
+    if user and st.session_state.token:
+        try:
+            nr = http_requests.get(f"{API_URL}/notifications", headers=auth_headers(), timeout=10)
+            if nr.status_code == 200:
+                notifs = nr.json().get("notifications", [])
+                unread = [n for n in notifs if not n.get("is_read")]
+                if unread:
+                    st.markdown("---")
+                    st.markdown(f"### 🔔 Notifications ({len(unread)} new)")
+                    for n in unread:
+                        st.success(f"**{n['title']}**  \n{n['message']}")
+        except Exception:
+            pass
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MODE 4 — History
 # ══════════════════════════════════════════════════════════════════════════════
 elif mode == "📚 My History":
     st.title("📚 My Analysis History")

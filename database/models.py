@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Float, DateTime, Text, ForeignKey, JSON
+from sqlalchemy import Column, String, Float, DateTime, Text, ForeignKey, JSON, Boolean, Integer
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -11,12 +11,14 @@ def generate_uuid():
 
 class User(Base):
     __tablename__ = "users"
-    id               = Column(String, primary_key=True, default=generate_uuid)
-    email            = Column(String, unique=True, nullable=False, index=True)
-    full_name        = Column(String, nullable=False)
-    hashed_password  = Column(String, nullable=False)
-    created_at       = Column(DateTime, default=datetime.utcnow)
-    analyses         = relationship("Analysis", back_populates="user", cascade="all, delete")
+    id              = Column(String, primary_key=True, default=generate_uuid)
+    email           = Column(String, unique=True, nullable=False, index=True)
+    full_name       = Column(String, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    created_at      = Column(DateTime, default=datetime.utcnow)
+    analyses        = relationship("Analysis", back_populates="user", cascade="all, delete")
+    projects        = relationship("Project", back_populates="user", cascade="all, delete")
+    notifications   = relationship("Notification", back_populates="user", cascade="all, delete")
 
 class Analysis(Base):
     __tablename__ = "analyses"
@@ -38,3 +40,55 @@ class Analysis(Base):
     missing_skills    = Column(JSON)
     created_at        = Column(DateTime, default=datetime.utcnow)
     user              = relationship("User", back_populates="analyses")
+
+class Project(Base):
+    __tablename__ = "projects"
+    id              = Column(String, primary_key=True, default=generate_uuid)
+    # nullable user_id — anyone can submit, logged-in users get linked
+    user_id         = Column(String, ForeignKey("users.id"), nullable=True)
+    # Submitter info (for non-logged-in users)
+    submitter_name  = Column(String, nullable=False)
+    submitter_email = Column(String, nullable=False, index=True)
+    # Project details
+    title           = Column(String, nullable=False)
+    description     = Column(Text, nullable=False)
+    github_url      = Column(String, nullable=True)
+    demo_url        = Column(String, nullable=True)
+    tech_stack      = Column(JSON)       # ["Python", "React", "FastAPI"]
+    ai_tags         = Column(JSON)       # AI-generated role tags ["Backend Dev", "ML Engineer"]
+    ai_summary      = Column(Text)       # AI-generated 1-line summary
+    # Stats
+    views           = Column(Integer, default=0)
+    interest_count  = Column(Integer, default=0)
+    # Status
+    is_active       = Column(Boolean, default=True)
+    created_at      = Column(DateTime, default=datetime.utcnow)
+    # Relations
+    user            = relationship("User", back_populates="projects")
+    interests       = relationship("ProjectInterest", back_populates="project", cascade="all, delete")
+
+class ProjectInterest(Base):
+    __tablename__ = "project_interests"
+    id               = Column(String, primary_key=True, default=generate_uuid)
+    project_id       = Column(String, ForeignKey("projects.id"), nullable=False)
+    # Recruiter info
+    recruiter_name   = Column(String, nullable=False)
+    recruiter_email  = Column(String, nullable=False)
+    company_name     = Column(String, nullable=False)
+    message          = Column(Text, nullable=True)
+    created_at       = Column(DateTime, default=datetime.utcnow)
+    # Relations
+    project          = relationship("Project", back_populates="interests")
+
+class Notification(Base):
+    __tablename__ = "notifications"
+    id         = Column(String, primary_key=True, default=generate_uuid)
+    user_id    = Column(String, ForeignKey("users.id"), nullable=True)
+    email      = Column(String, nullable=False)  # for non-logged-in users too
+    type       = Column(String)   # "interest_received"
+    title      = Column(String)
+    message    = Column(Text)
+    is_read    = Column(Boolean, default=False)
+    data       = Column(JSON)     # extra context e.g. project_id, recruiter info
+    created_at = Column(DateTime, default=datetime.utcnow)
+    user       = relationship("User", back_populates="notifications")
