@@ -1,9 +1,6 @@
 import json
 import re
 from utils.llm_client import ask_llm
-from sentence_transformers import SentenceTransformer, util
-
-model = SentenceTransformer('all-MiniLM-L6-v2')
 
 # ── Canonical skill aliases ───────────────────────────────────────────────────
 SKILL_ALIASES = {
@@ -81,9 +78,8 @@ SKILL_ALIASES = {
     "problem_solving":                      "Problem Solving",
     "logical problem-solving":              "Problem Solving",
     "algorithmic thinking":                 "Problem Solving",
-    "competitive programming":              "Problem Solving",
 
-    # Databases — MySQL = SQL
+    # Databases
     "sql":                                  "SQL",
     "mysql":                                "SQL",
     "postgresql":                           "PostgreSQL",
@@ -171,14 +167,12 @@ SKILL_ALIASES = {
 
 
 def normalize(skill: str) -> str:
-    """Normalize a skill string to its canonical display form."""
     cleaned = skill.strip().lower()
     cleaned = re.sub(r'[.,;:()]$', '', cleaned).strip()
     return SKILL_ALIASES.get(cleaned, skill.strip())
 
 
 def normalize_set(skills: list) -> dict:
-    """Returns {canonical_lower: display_name} for a list of skills."""
     result = {}
     for s in skills:
         if not s or not s.strip():
@@ -188,18 +182,37 @@ def normalize_set(skills: list) -> dict:
     return result
 
 
+def _simple_semantic_score(text1: str, text2: str) -> float:
+    """
+    Lightweight keyword-overlap semantic similarity.
+    Replaces sentence_transformers — no heavy dependencies needed.
+    """
+    stop = {"the","a","an","is","in","of","to","and","or","for","with",
+            "on","at","by","from","as","be","are","was","were","have",
+            "has","will","would","can","could","should","may","might",
+            "this","that","these","those","it","its","we","our","your"}
+
+    def tokens(t):
+        words = re.findall(r'[a-z0-9#+.]+', t.lower())
+        return set(w for w in words if w not in stop and len(w) > 1)
+
+    t1 = tokens(text1)
+    t2 = tokens(text2)
+    if not t1 or not t2:
+        return 0.5
+    intersection = t1 & t2
+    union        = t1 | t2
+    jaccard      = len(intersection) / len(union)
+    # Scale to ~0.3–0.9 range so it feels like cosine similarity
+    return 0.3 + jaccard * 0.6
+
+
 def extract_resume_skills_fully(resume_data: dict) -> list:
-    """
-    Extract skills from ALL resume sections:
-    skills, tools, coursework, education, projects, achievements.
-    """
     all_skills = []
 
-    # ── 1. Direct skill & tool fields ─────────────────────────────────────
     all_skills.extend(resume_data.get("skills", []))
     all_skills.extend(resume_data.get("tools",  []))
 
-    # ── 2. Coursework field ────────────────────────────────────────────────
     coursework = resume_data.get("coursework", "")
     if isinstance(coursework, str) and coursework:
         for item in re.split(r'[,\n]', coursework):
@@ -207,7 +220,6 @@ def extract_resume_skills_fully(resume_data: dict) -> list:
             if item and len(item) > 2:
                 all_skills.append(item)
 
-    # ── 3. Education — coursework inside degree entries ────────────────────
     for edu in resume_data.get("education", []):
         if isinstance(edu, dict):
             cw = edu.get("coursework", "")
@@ -217,9 +229,7 @@ def extract_resume_skills_fully(resume_data: dict) -> list:
                     if item and len(item) > 2:
                         all_skills.append(item)
 
-    # ── 4. Achievements ────────────────────────────────────────────────────
     achievements_text_parts = []
-
     for achievement in resume_data.get("achievements", []):
         if isinstance(achievement, dict):
             text = achievement.get("description", "") or achievement.get("text", "") or ""
@@ -231,7 +241,6 @@ def extract_resume_skills_fully(resume_data: dict) -> list:
             all_skills.append(text)
             achievements_text_parts.append(text)
 
-    # Infer skills from achievement keywords
     achievements_combined = " ".join(achievements_text_parts).lower()
 
     if any(kw in achievements_combined for kw in [
@@ -250,26 +259,24 @@ def extract_resume_skills_fully(resume_data: dict) -> list:
     if any(kw in achievements_combined for kw in ["react", "frontend", "web"]):
         all_skills.extend(["React", "HTML", "CSS"])
 
-    # ── 5. Projects — descriptions and tech stacks ────────────────────────
     for proj in resume_data.get("projects", []):
         if isinstance(proj, dict):
-            desc       = proj.get("description", "")  or ""
-            tech_stack = proj.get("tech_stack",   "")  or ""
-            tech_used  = proj.get("technologies", "")  or ""
+            desc       = proj.get("description", "") or ""
+            tech_stack = proj.get("tech_stack",   "") or ""
+            tech_used  = proj.get("technologies", "") or ""
             combined   = f"{desc} {tech_stack} {tech_used}"
             if combined.strip():
                 all_skills.append(combined)
         elif isinstance(proj, str):
             all_skills.append(proj)
 
-    # ── 6. Smart inferences from known skills ─────────────────────────────
     skills_lower = " ".join(str(s) for s in all_skills).lower()
 
     inferences = {
         "mysql":        ["SQL", "MySQL"],
         "c/c++":        ["C++", "C"],
         "c++":          ["C++"],
-        "java":         ["Java", "OOP"],          # Java implies OOP
+        "java":         ["Java", "OOP"],
         "reactjs":      ["React"],
         "github":       ["Git"],
         "gitlab":       ["Git"],
@@ -293,7 +300,7 @@ def extract_resume_skills_fully(resume_data: dict) -> list:
     return list(set(str(s) for s in all_skills if s and str(s).strip()))
 
 
-# ── Role skill map ────────────────────────────────────────────────────────────
+# ── Role / Company skill maps ─────────────────────────────────────────────────
 ROLE_SKILL_MAP = {
     "sde":              ["Python", "Java", "C++", "Data Structures", "Algorithms",
                          "Git", "System Design", "OOP", "SQL", "Problem Solving"],
@@ -330,7 +337,6 @@ COMPANY_SKILL_MAP = {
 
 
 def _enrich_jd(job_description: str) -> str:
-    """Expand short JDs using role + company skill maps."""
     jd = job_description.strip()
     if len(jd.split()) >= 25:
         return jd
@@ -358,7 +364,6 @@ def _enrich_jd(job_description: str) -> str:
 
 
 def extract_jd_skills(job_description: str) -> list:
-    """Use LLM to extract skills from JD."""
     prompt = f"""
 Extract all required technical skills, tools, and technologies from this job description.
 Include: programming languages, frameworks, databases, cloud platforms, CS fundamentals.
@@ -415,9 +420,8 @@ def calculate_match(resume_data: dict, job_description: str) -> dict:
     if not resume_text.strip():
         resume_text = resume_data.get("domain", "software engineering")
 
-    emb1 = model.encode(resume_text,        convert_to_tensor=True)
-    emb2 = model.encode(enriched_jd[:1000], convert_to_tensor=True)
-    semantic_score = float(util.cos_sim(emb1, emb2)[0][0])
+    # Lightweight semantic score — no heavy ML packages needed
+    semantic_score = _simple_semantic_score(resume_text, enriched_jd[:1000])
 
     final_score = round((skill_score * 0.7 + semantic_score * 0.3) * 100, 1)
     final_score = min(final_score, 100.0)
