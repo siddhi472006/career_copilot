@@ -11,7 +11,8 @@ psycopg2-binary>=2.9.0
 # Auth
 python-jose[cryptography]
 passlib[bcrypt]
-bcrypt
+bcrypt==4.0.1
+
 
 # AI
 groq
