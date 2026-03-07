@@ -20,18 +20,23 @@ def hash_password(password: str) -> str:
 def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 
-def create_token(user_id: str, email: str) -> str:
+def create_token(user_id, email: str, role: str = "candidate") -> str:
     payload = {
-        "sub":   user_id,
-        "email": email,
-        "exp":   datetime.utcnow() + timedelta(days=JWT_EXPIRE_DAYS),
+        "sub":          str(user_id),   # always store as string
+        "email":        email,
+        "role":         role,
+        "recruiter_id": str(user_id) if role == "recruiter" else None,
+        "exp":          datetime.utcnow() + timedelta(days=JWT_EXPIRE_DAYS),
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 def decode_token(token: str) -> dict:
     try:
-        return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        return payload
     except JWTError:
+        return {}
+    except Exception:
         return {}
 
 def get_user_by_email(db: Session, email: str):
