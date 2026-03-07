@@ -2,7 +2,7 @@ import streamlit as st
 import requests
 import requests as http_requests
 
-API_URL = "http://localhost:8000/api"
+API_URL = "https://career-copilot-otjj.onrender.com/api"
 
 st.set_page_config(
     page_title="AI Career Copilot",
